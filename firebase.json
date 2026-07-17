@@ -1,0 +1,36 @@
+{
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/pj-secure-boutique/**",
+        "destination": "https://payjay-trends.onrender.com/pj-secure-boutique/$1"
+      },
+      {
+        "source": "/pj-customer-auth/**",
+        "destination": "https://payjay-trends.onrender.com/pj-customer-auth/$1"
+      },
+      {
+        "source": "/pj-ops-hq/**",
+        "destination": "https://payjay-trends.onrender.com/pj-ops-hq/$1"
+      },
+      {
+        "source": "/verify-payment",
+        "destination": "https://payjay-trends.onrender.com/verify-payment"
+      },
+      {
+        "source": "/trendsetter-portal",
+        "destination": "https://payjay-trends.onrender.com/trendsetter-portal"
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

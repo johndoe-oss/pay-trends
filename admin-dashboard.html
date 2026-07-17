@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HQ Studio Dashboard | Payjay Trends</title>
+  <!-- Google Fonts: Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Tailwind CSS Production Build -->
+  <link rel="stylesheet" href="output.css">
+  <style>
+    .premium-transition {
+      transition: all 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+    }
+    .fade-in-up {
+      animation: fadeInUp 0.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+    }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body class="bg-brand-light text-brand antialiased min-h-screen flex flex-col">
+
+  <!-- Dynamic Notification Toast -->
+  <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-24 opacity-0 premium-transition px-6 py-4 font-semibold text-xs uppercase tracking-premium shadow-2xl bg-brand text-white"></div>
+
+  <!-- Main Container -->
+  <div id="admin-app" class="flex-grow flex flex-col">
+    <!-- Screen contents rendered dynamically via JS -->
+  </div>
+
+  <script>
+    // Global Administrative session state
+    const adminState = {
+      token: sessionStorage.getItem('pj_admin_token') || '',
+      products: [],
+      orders: [],
+      activeTab: 'products',
+      uploadBase64: ''
+    };
+
+    // Main App entrypoint
+    document.addEventListener('DOMContentLoaded', () => {
+      renderView();
+    });
+
+    function showToast(message, isError = false) {
+      const el = document.getElementById('toast');
+      el.innerText = message;
+      el.className = `fixed bottom-6 right-6 z-50 transform translate-y-0 opacity-100 premium-transition px-6 py-4 font-semibold text-xs uppercase tracking-premium shadow-2xl text-white ${isError ? 'bg-red-500' : 'bg-green-500'}`;
+      setTimeout(() => {
+        el.className = `fixed bottom-6 right-6 z-50 transform translate-y-24 opacity-0 premium-transition px-6 py-4 font-semibold text-xs uppercase tracking-premium shadow-2xl text-white`;
+      }, 4000);
+    }
+
+    async function apiRequest(url, options = {}) {
+      try {
+        const res = await fetch(url, options);
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Server error occurred.');
+        }
+        return data;
+      } catch (err) {
+        showToast(err.message, true);
+        throw err;
+      }
+    }
+
+    async function logAdminAction(action, description = '') {
+      try {
+        await apiRequest('/pj-ops-hq/create-user-log', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminState.token}`
+          },
+          body: JSON.stringify({
+            user_type: 'admin',
+            user_id: null,
+            user_email: 'admin',
+            action,
+            description,
+            ip_address: null,
+            user_agent: navigator.userAgent,
+            metadata: { tab: adminState.activeTab }
+          })
+        });
+      } catch (err) {
+        console.warn('Failed to create admin log:', err.message);
+      }
+    }
+
+    function renderView() {
+      const container = document.getElementById('admin-app');
+      container.innerHTML = '';
+
+      if (!adminState.token) {
+        renderLogin(container);
+      } else {
+        renderDashboard(container);
+      }
+    }
+
+    // Passcode Login screen
+    function renderLogin(container) {
+      container.className = "flex-grow flex items-center justify-center p-4 bg-brand-light";
+      container.innerHTML = `
+        <div class="bg-white border border-neutral-100 p-8 w-full max-w-sm shadow-2xl text-center fade-in-up">
+          <h2 class="text-base uppercase tracking-premium font-extrabold text-brand mb-1">HQ Studio Access</h2>
+          <p class="text-xs text-brand-muted mb-8 uppercase tracking-premium font-semibold">Enter executive passcode pin</p>
+          <form id="login-form">
+            <input type="password" id="passcode" required autocomplete="new-password" class="w-full text-center tracking-[0.6em] text-xl border border-neutral-200 py-3 mb-6 focus:border-brand outline-none premium-transition" placeholder="••••">
+            <button type="submit" class="w-full bg-brand text-white py-4 text-xs font-bold uppercase tracking-premium hover:bg-brand-hover premium-transition">Authorize Dashboard</button>
+          </form>
+        </div>
+      `;
+      const loginForm = document.getElementById('login-form');
+      if (loginForm) {
+        loginForm.addEventListener('submit', handleLogin);
+      }
+    }
+
+    async function handleLogin(event) {
+      event.preventDefault();
+      const passcode = document.getElementById('passcode').value;
+      
+      try {
+        const response = await apiRequest('/pj-ops-hq/sign-in-executive', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ passcode })
+        });
+        
+        adminState.token = response.token;
+        sessionStorage.setItem('pj_admin_token', response.token);
+        showToast('Dashboard Access Authorized.', false);
+        await logAdminAction('admin_login', 'Admin logged into dashboard');
+        renderView();
+      } catch (err) {
+        // Error toast triggered by apiRequest
+      }
+    }
+
+    function handleLogout() {
+      adminState.token = '';
+      sessionStorage.removeItem('pj_admin_token');
+      showToast('Logged out of executive profile.');
+      logAdminAction('admin_logout', 'Admin logged out of dashboard');
+      renderView();
+    }
+
+    // Admin Dashboard View
+    async function renderDashboard(container) {
+      container.className = "flex-grow flex flex-col bg-brand-light";
+      container.innerHTML = `
+        <!-- Top Nav -->
+        <header class="bg-white border-b border-neutral-100 sticky top-0 z-30">
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+            <span class="text-sm font-extrabold uppercase tracking-widest text-brand">PAYJAY HQ STUDIO</span>
+            <button id="admin-logout-btn" class="text-xs uppercase tracking-premium font-bold text-brand-muted hover:text-brand premium-transition">Log Out</button>
+          </div>
+        </header>
+
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full flex-grow flex">
+          <!-- Side Navigation -->
+          <div class="w-64 flex-shrink-0 flex flex-col space-y-2">
+            <button id="tab-products" class="px-5 py-4 text-left text-xs uppercase tracking-premium font-bold border border-neutral-200 transition-all ${adminState.activeTab === 'products' ? 'bg-brand text-white border-brand shadow-md' : 'bg-white text-brand hover:bg-neutral-50'}">Inventory Manager</button>
+            <button id="tab-categories" class="px-5 py-4 text-left text-xs uppercase tracking-premium font-bold border border-neutral-200 transition-all ${adminState.activeTab === 'categories' ? 'bg-brand text-white border-brand shadow-md' : 'bg-white text-brand hover:bg-neutral-50'}">Category Manager</button>
+            <button id="tab-orders" class="px-5 py-4 text-left text-xs uppercase tracking-premium font-bold border border-neutral-200 transition-all ${adminState.activeTab === 'orders' ? 'bg-brand text-white border-brand shadow-md' : 'bg-white text-brand hover:bg-neutral-50'}">Order Deliveries</button>
+            <button id="tab-customers" class="px-5 py-4 text-left text-xs uppercase tracking-premium font-bold border border-neutral-200 transition-all ${adminState.activeTab === 'customers' ? 'bg-brand text-white border-brand shadow-md' : 'bg-white text-brand hover:bg-neutral-50'}">Customers</button>
+            <button id="tab-logs" class="px-5 py-4 text-left text-xs uppercase tracking-premium font-bold border border-neutral-200 transition-all ${adminState.activeTab === 'logs' ? 'bg-brand text-white border-brand shadow-md' : 'bg-white text-brand hover:bg-neutral-50'}">User Logs</button>
+            <button id="tab-lookbooks" class="px-5 py-4 text-left text-xs uppercase tracking-premium font-bold border border-neutral-200 transition-all ${adminState.activeTab === 'lookbooks' ? 'bg-brand text-white border-brand shadow-md' : 'bg-white text-brand hover:bg-neutral-50'}">Lookbook Studio</button>
+          </div>
+
+          <!-- Dynamic Panel content -->
+          <div id="dashboard-content" class="flex-grow flex flex-col ml-8">
+            <!-- Loading placeholder -->
+            <p class="text-xs uppercase tracking-premium font-bold text-brand-muted text-center py-20">Loading studio files...</p>
+          </div>
+        </div>
+
+        <!-- Product Modal -->
+        <div id="product-modal" class="fixed inset-0 z-50 hidden bg-neutral-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div class="bg-white border border-neutral-100 w-full max-w-xl p-8 relative shadow-2xl overflow-y-auto max-h-[85vh] fade-in-up">
+            <button id="modal-close-btn" class="absolute top-4 right-4 text-2xl hover:scale-110 premium-transition">&times;</button>
+            <h3 id="modal-title" class="text-sm font-extrabold uppercase tracking-premium text-brand mb-6">Add New Product</h3>
+            
+            <form id="product-form">
+              <input type="hidden" id="edit-slug">
+              
+              <div class="mb-4">
+                <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Product Name</label>
+                <input type="text" id="prod-name" required class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition">
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Price (GHS)</label>
+                  <input type="number" step="0.01" id="prod-price" required class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition">
+                </div>
+                <div>
+                  <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Stock Quantity</label>
+                  <input type="number" id="prod-stock" required class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition">
+                </div>
+              </div>
+
+              <div class="mb-4">
+                <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Category</label>
+                <select id="prod-category" required class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none bg-white premium-transition">
+                  <option value="Men">Men</option>
+                  <option value="Women">Women</option>
+                  <option value="Kids">Kids</option>
+                  <option value="Accessories">Accessories</option>
+                </select>
+              </div>
+
+              <div class="mb-4">
+                <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Product Type</label>
+                <select id="prod-product-type" required class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none bg-white premium-transition">
+                  <option value="">Select Type...</option>
+                  <option value="Shoes">Shoes</option>
+                  <option value="Sandals">Sandals</option>
+                  <option value="Down Shoes">Down Shoes</option>
+                  <option value="Shirts">Shirts</option>
+                  <option value="Blazers">Blazers</option>
+                  <option value="Pants">Pants</option>
+                  <option value="Dresses">Dresses</option>
+                  <option value="Skirts">Skirts</option>
+                  <option value="T-Shirts">T-Shirts</option>
+                  <option value="Overalls">Overalls</option>
+                  <option value="Accessories">Accessories</option>
+                </select>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Sizes (Comma separated)</label>
+                  <input type="text" id="prod-sizes" class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition" placeholder="S, M, L, XL">
+                </div>
+                <div>
+                  <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Colors (Comma separated)</label>
+                  <input type="text" id="prod-colors" class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition" placeholder="White, Black, Beige">
+                </div>
+              </div>
+
+              <div class="mb-4">
+                <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Product Description</label>
+                <textarea id="prod-desc" rows="3" class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition"></textarea>
+              </div>
+
+              <div class="mb-6">
+                <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Image URL</label>
+                <input type="text" id="prod-image-url" class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition" placeholder="https://unsplash.com/...">
+                <p class="text-[9px] text-brand-muted mt-2 uppercase tracking-premium">Or upload a file (converts to base64):</p>
+                <input type="file" id="prod-image-file" class="w-full mt-1 border border-neutral-200 px-4 py-2 text-xs bg-brand-light outline-none" accept="image/*">
+              </div>
+
+              <div class="mb-6">
+                <div class="flex items-center justify-between mb-3">
+                  <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted">Regional Pricing</label>
+                  <button type="button" id="toggle-regional-pricing" class="text-[10px] uppercase tracking-premium font-bold text-brand hover:text-brand-hover premium-transition">Expand</button>
+                </div>
+                <div id="regional-pricing-section" class="hidden border border-neutral-200 rounded p-4 bg-neutral-50/50">
+                  <p class="text-[10px] text-brand-muted mb-3 uppercase tracking-premium">Tick regions and set custom prices. Leave blank to use the default base price.</p>
+                  <div id="regional-pricing-list" class="space-y-2 max-h-[240px] overflow-y-auto pr-1">
+                    <!-- Populated dynamically -->
+                  </div>
+                </div>
+              </div>
+
+              <button type="submit" class="w-full bg-brand text-white py-4 text-xs font-bold uppercase tracking-premium hover:bg-brand-hover premium-transition">Save Catalog Item</button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Category Modal -->
+        <div id="category-modal" class="fixed inset-0 z-50 hidden bg-neutral-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div class="bg-white border border-neutral-100 w-full max-w-xl p-8 relative shadow-2xl overflow-y-auto max-h-[85vh] fade-in-up">
+            <button id="category-modal-close-btn" class="absolute top-4 right-4 text-2xl hover:scale-110 premium-transition">&times;</button>
+            <h3 id="modal-title" class="text-sm font-extrabold uppercase tracking-premium text-brand mb-6">Add New Category</h3>
+            
+            <form id="category-form">
+              <input type="hidden" id="edit-category-slug">
+              
+              <div class="mb-4">
+                <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Category Name</label>
+                <input type="text" id="cat-name" required class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition" placeholder="e.g. Kids, Men, Women">
+              </div>
+
+              <div class="mb-4">
+                <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Slug (URL-friendly)</label>
+                <input type="text" id="cat-slug" required class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition" placeholder="e.g. kids, men, women">
+                <p class="text-[9px] text-brand-muted mt-1 uppercase tracking-premium">Auto-generated from name if left empty on create</p>
+              </div>
+
+              <div class="mb-4">
+                <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Description</label>
+                <textarea id="cat-description" rows="2" class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition" placeholder="Brief description of this category"></textarea>
+              </div>
+
+              <div class="mb-4">
+                <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Category Image URL</label>
+                <input type="text" id="cat-image-url" class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition" placeholder="https://images.unsplash.com/...">
+                <p class="text-[9px] text-brand-muted mt-2 uppercase tracking-premium">This image will be shown in the sidebar preview</p>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Display Order</label>
+                  <input type="number" id="cat-display-order" value="0" class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition">
+                </div>
+                <div>
+                  <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Status</label>
+                  <select id="cat-is-active" class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none bg-white premium-transition">
+                    <option value="true">Active</option>
+                    <option value="false">Inactive</option>
+                  </select>
+                </div>
+              </div>
+
+              <button type="submit" class="w-full bg-brand text-white py-4 text-xs font-bold uppercase tracking-premium hover:bg-brand-hover premium-transition">Save Category</button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Lookbook Modal -->
+        <div id="lookbook-modal" class="fixed inset-0 z-50 hidden bg-neutral-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div class="bg-white border border-neutral-100 w-full max-w-xl p-8 relative shadow-2xl overflow-y-auto max-h-[85vh] fade-in-up">
+            <button id="lookbook-modal-close-btn" class="absolute top-4 right-4 text-2xl hover:scale-110 premium-transition">&times;</button>
+            <h3 id="modal-title" class="text-sm font-extrabold uppercase tracking-premium text-brand mb-6">Add New Lookbook</h3>
+            
+            <form id="lookbook-form">
+              <input type="hidden" id="edit-lookbook-slug">
+              
+              <div class="mb-4">
+                <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Title</label>
+                <input type="text" id="lb-title" required class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition" placeholder="e.g. Summer Luxe">
+              </div>
+
+              <div class="mb-4">
+                <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Subtitle</label>
+                <input type="text" id="lb-subtitle" class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition" placeholder="Short teaser">
+              </div>
+
+              <div class="mb-4">
+                <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Description</label>
+                <textarea id="lb-description" rows="2" class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition" placeholder="Brief description"></textarea>
+              </div>
+
+              <div class="mb-4">
+                <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Cover Image URL</label>
+                <input type="text" id="lb-image-url" class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition" placeholder="https://images.unsplash.com/...">
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Display Order</label>
+                  <input type="number" id="lb-display-order" value="0" class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition">
+                </div>
+                <div>
+                  <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Status</label>
+                  <select id="lb-is-active" class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none bg-white premium-transition">
+                    <option value="true">Active</option>
+                    <option value="false">Inactive</option>
+                  </select>
+                </div>
+              </div>
+
+              <button type="submit" class="w-full bg-brand text-white py-4 text-xs font-bold uppercase tracking-premium hover:bg-brand-hover premium-transition">Save Lookbook</button>
+            </form>
+          </div>
+        </div>
+      `;
+
+      // Attach event listeners for dashboard elements
+      const logoutBtn = document.getElementById('admin-logout-btn');
+      if (logoutBtn) {
+        logoutBtn.addEventListener('click', handleLogout);
+      }
+
+      const tabProducts = document.getElementById('tab-products');
+      if (tabProducts) {
+        tabProducts.addEventListener('click', () => switchTab('products'));
+      }
+
+      const tabCategories = document.getElementById('tab-categories');
+      if (tabCategories) {
+        tabCategories.addEventListener('click', () => switchTab('categories'));
+      }
+
+      const tabOrders = document.getElementById('tab-orders');
+      if (tabOrders) {
+        tabOrders.addEventListener('click', () => switchTab('orders'));
+      }
+
+      const tabCustomers = document.getElementById('tab-customers');
+      if (tabCustomers) {
+        tabCustomers.addEventListener('click', () => switchTab('customers'));
+      }
+
+      const tabLogs = document.getElementById('tab-logs');
+      if (tabLogs) {
+        tabLogs.addEventListener('click', () => switchTab('logs'));
+      }
+
+      const tabLookbooks = document.getElementById('tab-lookbooks');
+      if (tabLookbooks) {
+        tabLookbooks.addEventListener('click', () => switchTab('lookbooks'));
+      }
+
+      const modalCloseBtn = document.getElementById('modal-close-btn');
+      if (modalCloseBtn) {
+        modalCloseBtn.addEventListener('click', closeProductModal);
+      }
+
+      const productForm = document.getElementById('product-form');
+      if (productForm) {
+        productForm.addEventListener('submit', handleSaveProduct);
+      }
+
+      const imageFile = document.getElementById('prod-image-file');
+      if (imageFile) {
+        imageFile.addEventListener('change', handleFileSelect);
+      }
+
+      const toggleRegionalBtn = document.getElementById('toggle-regional-pricing');
+      const regionalSection = document.getElementById('regional-pricing-section');
+      if (toggleRegionalBtn && regionalSection) {
+        toggleRegionalBtn.addEventListener('click', async () => {
+          const isHidden = regionalSection.classList.contains('hidden');
+          if (isHidden) {
+            regionalSection.classList.remove('hidden');
+            toggleRegionalBtn.innerText = 'Collapse';
+            const editSlug = document.getElementById('edit-slug').value;
+            const productSlug = editSlug || (new URLSearchParams(window.location.search).get('slug'));
+            if (editSlug) {
+              await loadRegionalPrices(editSlug);
+            } else {
+              buildRegionalPricingList([]);
+            }
+          } else {
+            regionalSection.classList.add('hidden');
+            toggleRegionalBtn.innerText = 'Expand';
+          }
+        });
+      }
+
+      const categoryModalCloseBtn = document.getElementById('category-modal-close-btn');
+      if (categoryModalCloseBtn) {
+        categoryModalCloseBtn.addEventListener('click', closeCategoryModal);
+      }
+
+      const categoryForm = document.getElementById('category-form');
+      if (categoryForm) {
+        categoryForm.addEventListener('submit', handleSaveCategory);
+      }
+
+      const lookbookModalCloseBtn = document.getElementById('lookbook-modal-close-btn');
+      if (lookbookModalCloseBtn) {
+        lookbookModalCloseBtn.addEventListener('click', closeLookbookModal);
+      }
+
+      const lookbookForm = document.getElementById('lookbook-form');
+      if (lookbookForm) {
+        lookbookForm.addEventListener('submit', handleSaveLookbook);
+      }
+
+      // Load correct panel
+      await renderTabContent();
+    }
+
+    async function switchTab(tab) {
+      adminState.activeTab = tab;
+      renderView();
+    }
+
+    async function renderTabContent() {
+      const panel = document.getElementById('dashboard-content');
+      
+      if (adminState.activeTab === 'products') {
+        panel.innerHTML = `
+          <div class="flex justify-between items-center mb-6">
+            <h3 class="text-xs uppercase tracking-premium font-extrabold text-brand-muted">Inventory Catalog</h3>
+            <button id="add-product-btn" class="bg-brand text-white hover:bg-brand-hover px-4 py-3 text-xs font-bold uppercase tracking-premium premium-transition shadow-md">Add Product</button>
+          </div>
+
+          <div class="bg-white border border-neutral-100 overflow-x-auto shadow-sm">
+            <table class="w-full text-left text-sm border-collapse">
+              <thead>
+                <tr class="bg-neutral-50 text-[10px] uppercase tracking-premium text-brand font-bold border-b border-neutral-200">
+                  <th class="p-4">Thumbnail</th>
+                  <th class="p-4">Name</th>
+                  <th class="p-4">Category</th>
+                  <th class="p-4">Type</th>
+                  <th class="p-4">Price</th>
+                  <th class="p-4">Stock</th>
+                  <th class="p-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="inventory-rows">
+                <tr><td colspan="7" class="p-8 text-center text-xs text-brand-muted uppercase tracking-premium">Loading shelf listings...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        `;
+
+        const addProductBtn = document.getElementById('add-product-btn');
+        if (addProductBtn) {
+          addProductBtn.addEventListener('click', openProductModal);
+        }
+
+        await loadInventoryTable();
+      } else if (adminState.activeTab === 'categories') {
+        panel.innerHTML = `
+          <div class="flex justify-between items-center mb-6">
+            <h3 class="text-xs uppercase tracking-premium font-extrabold text-brand-muted">Category Manager</h3>
+            <button id="add-category-btn" class="bg-brand text-white hover:bg-brand-hover px-4 py-3 text-xs font-bold uppercase tracking-premium premium-transition shadow-md">Add Category</button>
+          </div>
+
+          <div class="bg-white border border-neutral-100 overflow-x-auto shadow-sm">
+            <table class="w-full text-left text-sm border-collapse">
+              <thead>
+                <tr class="bg-neutral-50 text-[10px] uppercase tracking-premium text-brand font-bold border-b border-neutral-200">
+                  <th class="p-4">Preview</th>
+                  <th class="p-4">Name</th>
+                  <th class="p-4">Slug</th>
+                  <th class="p-4">Display Order</th>
+                  <th class="p-4">Status</th>
+                  <th class="p-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="categories-rows">
+                <tr><td colspan="6" class="p-8 text-center text-xs text-brand-muted uppercase tracking-premium">Loading categories...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        `;
+
+        const addCategoryBtn = document.getElementById('add-category-btn');
+        if (addCategoryBtn) {
+          addCategoryBtn.addEventListener('click', openCategoryModal);
+        }
+
+        await loadCategoriesTable();
+      } else if (adminState.activeTab === 'customers') {
+        panel.innerHTML = `
+          <h3 class="text-xs uppercase tracking-premium font-extrabold text-brand-muted mb-6">Registered Customers</h3>
+          <div class="bg-white border border-neutral-100 overflow-x-auto shadow-sm">
+            <table class="w-full text-left text-sm border-collapse">
+              <thead>
+                <tr class="bg-neutral-50 text-[10px] uppercase tracking-premium text-brand font-bold border-b border-neutral-200">
+                  <th class="p-4">Name</th>
+                  <th class="p-4">Email</th>
+                  <th class="p-4">Region</th>
+                  <th class="p-4">Joined</th>
+                </tr>
+              </thead>
+              <tbody id="customers-rows">
+                <tr><td colspan="4" class="p-8 text-center text-xs text-brand-muted uppercase tracking-premium">Loading customers...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        `;
+        await loadCustomersTable();
+      } else if (adminState.activeTab === 'logs') {
+        panel.innerHTML = `
+          <h3 class="text-xs uppercase tracking-premium font-extrabold text-brand-muted mb-6">User Logs</h3>
+          <div class="bg-white border border-neutral-100 overflow-x-auto shadow-sm">
+            <table class="w-full text-left text-sm border-collapse">
+              <thead>
+                <tr class="bg-neutral-50 text-[10px] uppercase tracking-premium text-brand font-bold border-b border-neutral-200">
+                  <th class="p-4">Time</th>
+                  <th class="p-4">User Type</th>
+                  <th class="p-4">User</th>
+                  <th class="p-4">Action</th>
+                  <th class="p-4">Description</th>
+                </tr>
+              </thead>
+              <tbody id="user-logs-rows">
+                <tr><td colspan="5" class="p-8 text-center text-xs text-brand-muted uppercase tracking-premium">Loading user logs...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        `;
+        await loadUserLogsTable();
+      } else if (adminState.activeTab === 'lookbooks') {
+        panel.innerHTML = `
+          <div class="flex justify-between items-center mb-6">
+            <h3 class="text-xs uppercase tracking-premium font-extrabold text-brand-muted">Lookbook Manager</h3>
+            <button id="add-lookbook-btn" class="bg-brand text-white hover:bg-brand-hover px-4 py-3 text-xs font-bold uppercase tracking-premium premium-transition shadow-md">New Lookbook</button>
+          </div>
+          <div class="bg-white border border-neutral-100 overflow-x-auto shadow-sm">
+            <table class="w-full text-left text-sm border-collapse">
+              <thead>
+                <tr class="bg-neutral-50 text-[10px] uppercase tracking-premium text-brand font-bold border-b border-neutral-200">
+                  <th class="p-4">Preview</th>
+                  <th class="p-4">Title</th>
+                  <th class="p-4">Slug</th>
+                  <th class="p-4">Order</th>
+                  <th class="p-4">Status</th>
+                  <th class="p-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="lookbooks-rows">
+                <tr><td colspan="6" class="p-8 text-center text-xs text-brand-muted uppercase tracking-premium">Loading lookbooks...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        `;
+        const addLookbookBtn = document.getElementById('add-lookbook-btn');
+        if (addLookbookBtn) {
+          addLookbookBtn.addEventListener('click', openLookbookModal);
+        }
+        await loadLookbooksTable();
+      } else {
+        panel.innerHTML = `
+          <h3 class="text-xs uppercase tracking-premium font-extrabold text-brand-muted mb-6">Order Log Entries</h3>
+          <div class="bg-white border border-neutral-100 overflow-x-auto shadow-sm">
+            <table class="w-full text-left text-sm border-collapse">
+              <thead>
+                <tr class="bg-neutral-50 text-[10px] uppercase tracking-premium text-brand font-bold border-b border-neutral-200">
+                  <th class="p-4">Token</th>
+                  <th class="p-4">Customer Details</th>
+                  <th class="p-4">GHS Amount</th>
+                  <th class="p-4">Delivery address</th>
+                  <th class="p-4">Tracking Status</th>
+                  <th class="p-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="orders-rows">
+                <tr><td colspan="6" class="p-8 text-center text-xs text-brand-muted uppercase tracking-premium">Loading purchase history...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        `;
+        await loadOrdersTable();
+      }
+    }
+
+    async function loadInventoryTable() {
+      const tbody = document.getElementById('inventory-rows');
+      try {
+        const data = await apiRequest('/pj-secure-boutique/get-shelf');
+        adminState.products = data;
+        
+        if (data.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-xs text-brand-muted">Inventory catalog is currently empty.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = data.map(p => `
+          <tr class="border-b border-neutral-100 hover:bg-neutral-50/50 premium-transition">
+            <td class="p-4"><img src="${p.image_url}" class="h-10 w-10 object-cover bg-neutral-100"></td>
+            <td class="p-4 font-semibold text-brand">${p.name}</td>
+            <td class="p-4 text-xs font-semibold text-brand-muted uppercase tracking-premium">${p.category}</td>
+            <td class="p-4 text-xs font-medium text-brand-muted">${p.product_type || '-'}</td>
+            <td class="p-4 font-bold">GH₵ ${parseFloat(p.price).toFixed(2)}</td>
+            <td class="p-4 font-bold text-xs">${p.stock}</td>
+            <td class="p-4 text-right space-x-2">
+              <button class="text-xs uppercase font-bold text-blue-500 hover:text-blue-700 premium-transition edit-product-btn" data-slug="${p.slug}">Edit</button>
+              <button class="text-xs uppercase font-bold text-red-500 hover:text-red-700 premium-transition delete-product-btn" data-slug="${p.slug}">Delete</button>
+            </td>
+          </tr>
+        `).join('');
+
+        // Attach edit/delete listeners
+        document.querySelectorAll('.edit-product-btn').forEach(btn => {
+          btn.addEventListener('click', () => editProduct(btn.getAttribute('data-slug')));
+        });
+        document.querySelectorAll('.delete-product-btn').forEach(btn => {
+          btn.addEventListener('click', () => deleteProduct(btn.getAttribute('data-slug')));
+        });
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-xs text-red-500 uppercase tracking-premium">Error loading inventory data.</td></tr>`;
+      }
+    }
+
+    async function loadCustomersTable() {
+      const tbody = document.getElementById('customers-rows');
+      try {
+        const data = await apiRequest('/pj-ops-hq/get-customers', {
+          headers: { 'Authorization': `Bearer ${adminState.token}` }
+        });
+        
+        if (data.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-xs text-brand-muted">No registered customers yet.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = data.map(c => `
+          <tr class="border-b border-neutral-100 hover:bg-neutral-50/50 premium-transition">
+            <td class="p-4 font-semibold text-brand">${c.name}</td>
+            <td class="p-4 text-xs text-brand-muted">${c.email}</td>
+            <td class="p-4">
+              <span class="px-2 py-1 text-[9px] font-bold uppercase tracking-premium ${c.region ? 'bg-green-100 text-green-800' : 'bg-neutral-100 text-neutral-800'}">${c.region || 'Not selected'}</span>
+            </td>
+            <td class="p-4 text-xs text-brand-muted">${new Date(c.created_at).toLocaleDateString()}</td>
+          </tr>
+        `).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-xs text-red-500 uppercase tracking-premium">Error loading customers.</td></tr>`;
+      }
+    }
+
+    async function loadOrdersTable() {
+      const tbody = document.getElementById('orders-rows');
+      try {
+        const data = await apiRequest('/pj-ops-hq/get-order-log', {
+          headers: { 'Authorization': `Bearer ${adminState.token}` }
+        });
+        
+        if (data.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-xs text-brand-muted">No orders placed yet.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = data.map(o => `
+          <tr class="border-b border-neutral-100 hover:bg-neutral-50/50 premium-transition">
+            <td class="p-4 font-mono font-bold text-brand">${o.token}</td>
+            <td class="p-4">
+              <div class="font-semibold text-brand">${o.customer_name}</div>
+              <div class="text-[10px] text-brand-muted">${o.customer_email} | ${o.customer_phone}</div>
+            </td>
+            <td class="p-4 font-bold">GH₵ ${parseFloat(o.total_amount).toFixed(2)}</td>
+            <td class="p-4">
+              <div class="text-xs max-w-xs truncate">${o.delivery_address}</div>
+              <div class="text-[10px] uppercase font-bold text-brand-muted tracking-premium">${o.region}</div>
+            </td>
+            <td class="p-4"><span class="px-2 py-1 text-[9px] font-bold uppercase tracking-premium ${o.status === 'delivered' ? 'bg-green-100 text-green-800' : 'bg-neutral-100 text-neutral-800'}">${o.status}</span></td>
+            <td class="p-4 text-right">
+              <select class="text-xs uppercase tracking-premium font-bold border border-neutral-200 p-2 bg-white outline-none order-status-select" data-token="${o.token}">
+                <option value="placed" ${o.status === 'placed' ? 'selected' : ''}>Placed</option>
+                <option value="verified" ${o.status === 'verified' ? 'selected' : ''}>Verified</option>
+                <option value="processing" ${o.status === 'processing' ? 'selected' : ''}>Processing</option>
+                <option value="dispatched" ${o.status === 'dispatched' ? 'selected' : ''}>Dispatched</option>
+                <option value="delivered" ${o.status === 'delivered' ? 'selected' : ''}>Delivered</option>
+              </select>
+            </td>
+          </tr>
+        `).join('');
+
+        // Attach order status change listeners
+        document.querySelectorAll('.order-status-select').forEach(sel => {
+          sel.addEventListener('change', () => {
+            updateOrderStatus(sel.getAttribute('data-token'), sel.value);
+          });
+        });
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-xs text-red-500 uppercase tracking-premium">Error loading orders.</td></tr>`;
+      }
+    }
+
+    async function updateOrderStatus(token, status) {
+      try {
+        await apiRequest(`/pj-ops-hq/advance-consignment/${token}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminState.token}`
+          },
+          body: JSON.stringify({ status })
+        });
+        await logAdminAction('order_status_updated', `Updated order ${token} status to ${status}`);
+        showToast(`Order status updated to ${status}.`);
+        await loadOrdersTable();
+      } catch (err) {}
+    }
+
+    // ============================================
+    // PRODUCT MANAGEMENT
+    // ============================================
+
+    function openProductModal() {
+      document.getElementById('modal-title').innerText = 'Add New Product';
+      document.getElementById('product-form').reset();
+      document.getElementById('edit-slug').value = '';
+      adminState.uploadBase64 = '';
+      document.getElementById('product-modal').classList.remove('hidden');
+    }
+
+    function closeProductModal() {
+      document.getElementById('product-modal').classList.add('hidden');
+    }
+
+    function handleFileSelect(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        adminState.uploadBase64 = e.target.result;
+        document.getElementById('prod-image-url').value = adminState.uploadBase64;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function editProduct(slug) {
+      openProductModal();
+      document.getElementById('modal-title').innerText = 'Edit Product';
+
+      try {
+        const p = await apiRequest(`/pj-secure-boutique/get-shelf/${slug}`);
+        document.getElementById('edit-slug').value = p.slug;
+        document.getElementById('prod-name').value = p.name;
+        document.getElementById('prod-price').value = p.price;
+        document.getElementById('prod-stock').value = p.stock;
+        document.getElementById('prod-category').value = p.category;
+        document.getElementById('prod-product-type').value = p.product_type || '';
+        document.getElementById('prod-sizes').value = p.sizes.join(', ');
+        document.getElementById('prod-colors').value = p.colors.join(', ');
+        document.getElementById('prod-desc').value = p.description || '';
+        document.getElementById('prod-image-url').value = p.image_url || '';
+      } catch (err) {}
+    }
+
+    // ============================================
+    // REGIONAL PRICING HELPERS
+    // ============================================
+
+    const GHANA_REGIONS = [
+      'Greater Accra', 'Ashanti', 'Western', 'Central', 'Eastern',
+      'Volta', 'Northern', 'Upper East', 'Upper West', 'Bono',
+      'Bono East', 'Ahafo', 'Oti', 'Savannah', 'North East', 'Western North'
+    ];
+
+    function buildRegionalPricingList(existingPrices = []) {
+      const container = document.getElementById('regional-pricing-list');
+      if (!container) return;
+
+      const priceMap = new Map();
+      existingPrices.forEach(p => priceMap.set(p.region, parseFloat(p.price)));
+
+      container.innerHTML = GHANA_REGIONS.map(region => {
+        const price = priceMap.has(region) ? priceMap.get(region).toFixed(2) : '';
+        return `
+          <div class="flex items-center justify-between py-1.5 border-b border-neutral-100 last:border-0">
+            <div class="flex items-center space-x-2">
+              <input type="checkbox" class="regional-checkbox h-3.5 w-3.5 rounded border-neutral-300 text-brand focus:ring-brand" data-region="${region}" ${price !== '' ? 'checked' : ''}>
+              <span class="text-[11px] font-medium text-brand uppercase tracking-premium">${region}</span>
+            </div>
+            <input type="number" step="0.01" class="regional-price-input w-24 border border-neutral-200 px-2 py-1.5 text-xs text-right focus:border-brand outline-none premium-transition" placeholder="Base price" value="${price}" data-region="${region}" ${price === '' ? '' : ''}>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function loadRegionalPrices(slug) {
+      try {
+        const data = await apiRequest(`/pj-ops-hq/get-regional-prices/${slug}`, {
+          headers: { 'Authorization': `Bearer ${adminState.token}` }
+        });
+        buildRegionalPricingList(data.prices || []);
+      } catch (err) {
+        buildRegionalPricingList([]);
+      }
+    }
+
+    async function saveRegionalPrices(productId) {
+      const checkboxes = document.querySelectorAll('#regional-pricing-list .regional-checkbox');
+      const promises = [];
+
+      checkboxes.forEach(cb => {
+        const region = cb.getAttribute('data-region');
+        const priceInput = document.querySelector(`.regional-price-input[data-region="${region}"]`);
+        const price = priceInput ? priceInput.value.trim() : '';
+
+        if (cb.checked && price !== '') {
+          promises.push(
+            apiRequest('/pj-ops-hq/set-regional-price', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${adminState.token}`
+              },
+              body: JSON.stringify({ product_id: productId, region, price: parseFloat(price) })
+            }).catch(() => {})
+          );
+        } else if (!cb.checked && price !== '') {
+          promises.push(
+            apiRequest('/pj-ops-hq/remove-regional-price', {
+              method: 'DELETE',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${adminState.token}`
+              },
+              body: JSON.stringify({ product_id: productId, region })
+            }).catch(() => {})
+          );
+        }
+      });
+
+      await Promise.all(promises);
+    }
+
+    async function handleSaveProduct(event) {
+      event.preventDefault();
+      const editSlug = document.getElementById('edit-slug').value;
+
+      const payload = {
+        name: document.getElementById('prod-name').value,
+        price: parseFloat(document.getElementById('prod-price').value),
+        stock: parseInt(document.getElementById('prod-stock').value),
+        category: document.getElementById('prod-category').value,
+        product_type: document.getElementById('prod-product-type').value,
+        sizes: document.getElementById('prod-sizes').value.split(',').map(s => s.trim()).filter(Boolean),
+        colors: document.getElementById('prod-colors').value.split(',').map(c => c.trim()).filter(Boolean),
+        description: document.getElementById('prod-desc').value,
+        image_url: document.getElementById('prod-image-url').value
+      };
+
+      try {
+        let url = '/pj-ops-hq/push-inventory';
+        let method = 'POST';
+        let savedProduct = null;
+
+        if (editSlug) {
+          url = `/pj-ops-hq/patch-inventory/${editSlug}`;
+          method = 'PUT';
+        }
+
+        const response = await apiRequest(url, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminState.token}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        savedProduct = response;
+        const action = editSlug ? 'product_updated' : 'product_created';
+        const description = editSlug ? `Updated product: ${payload.name}` : `Created new product: ${payload.name}`;
+        await logAdminAction(action, description);
+
+        // Save regional prices if the section was expanded
+        const section = document.getElementById('regional-pricing-section');
+        if (section && !section.classList.contains('hidden')) {
+          const productId = savedProduct.id || (await apiRequest(`/pj-secure-boutique/get-shelf/${editSlug}`)).id;
+          await saveRegionalPrices(productId);
+        }
+
+        showToast('Catalog item saved.');
+        closeProductModal();
+        await loadInventoryTable();
+      } catch (err) {}
+    }
+
+    async function deleteProduct(slug) {
+      if (!confirm('Are you sure you want to permanently delete this catalog product?')) return;
+      
+      try {
+        await apiRequest(`/pj-ops-hq/purge-inventory/${slug}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${adminState.token}` }
+        });
+        await logAdminAction('product_deleted', `Deleted product: ${slug}`);
+        showToast('Product purged successfully.');
+        await loadInventoryTable();
+      } catch (err) {}
+    }
+
+    // ============================================
+    // CATEGORY MANAGEMENT
+    // ============================================
+
+    async function loadCategoriesTable() {
+      const tbody = document.getElementById('categories-rows');
+      try {
+        const data = await apiRequest('/pj-secure-boutique/get-categories');
+        
+        if (data.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-xs text-brand-muted">No categories available.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = data.map(c => `
+          <tr class="border-b border-neutral-100 hover:bg-neutral-50/50 premium-transition">
+            <td class="p-4"><img src="${c.image_url || 'https://images.unsplash.com/photo-1523170335258-f5ed11844a49?auto=format&fit=crop&q=80&w=100'}" class="h-12 w-12 object-cover bg-neutral-100"></td>
+            <td class="p-4 font-semibold text-brand">${c.name}</td>
+            <td class="p-4 text-xs font-mono text-brand-muted">${c.slug}</td>
+            <td class="p-4 font-bold text-xs">${c.display_order}</td>
+            <td class="p-4"><span class="px-2 py-1 text-[9px] font-bold uppercase tracking-premium ${c.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${c.is_active ? 'Active' : 'Inactive'}</span></td>
+            <td class="p-4 text-right space-x-2">
+              <button class="text-xs uppercase font-bold text-blue-500 hover:text-blue-700 premium-transition edit-category-btn" data-slug="${c.slug}">Edit</button>
+              <button class="text-xs uppercase font-bold text-red-500 hover:text-red-700 premium-transition delete-category-btn" data-slug="${c.slug}">Delete</button>
+            </td>
+          </tr>
+        `).join('');
+
+        // Attach edit/delete listeners
+        document.querySelectorAll('.edit-category-btn').forEach(btn => {
+          btn.addEventListener('click', () => editCategory(btn.getAttribute('data-slug')));
+        });
+        document.querySelectorAll('.delete-category-btn').forEach(btn => {
+          btn.addEventListener('click', () => deleteCategory(btn.getAttribute('data-slug')));
+        });
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-xs text-red-500 uppercase tracking-premium">Error loading categories.</td></tr>`;
+      }
+    }
+
+    function openCategoryModal() {
+      document.getElementById('modal-title').innerText = 'Add New Category';
+      document.getElementById('category-form').reset();
+      document.getElementById('edit-category-slug').value = '';
+      adminState.uploadBase64 = '';
+      document.getElementById('category-modal').classList.remove('hidden');
+    }
+
+    function closeCategoryModal() {
+      document.getElementById('category-modal').classList.add('hidden');
+    }
+
+    async function editCategory(slug) {
+      openCategoryModal();
+      document.getElementById('modal-title').innerText = 'Edit Category';
+
+      try {
+        const c = await apiRequest(`/pj-secure-boutique/get-category/${slug}`);
+        document.getElementById('edit-category-slug').value = c.slug;
+        document.getElementById('cat-name').value = c.name;
+        document.getElementById('cat-slug').value = c.slug;
+        document.getElementById('cat-description').value = c.description || '';
+        document.getElementById('cat-image-url').value = c.image_url || '';
+        document.getElementById('cat-display-order').value = c.display_order || 0;
+        document.getElementById('cat-is-active').value = c.is_active ? 'true' : 'false';
+      } catch (err) {}
+    }
+
+    async function handleSaveCategory(event) {
+      event.preventDefault();
+      const editSlug = document.getElementById('edit-category-slug').value;
+
+      const payload = {
+        name: document.getElementById('cat-name').value,
+        slug: document.getElementById('cat-slug').value,
+        description: document.getElementById('cat-description').value,
+        image_url: document.getElementById('cat-image-url').value,
+        display_order: parseInt(document.getElementById('cat-display-order').value) || 0,
+        is_active: document.getElementById('cat-is-active').value === 'true'
+      };
+
+      try {
+        let url = '/pj-ops-hq/push-category';
+        let method = 'POST';
+
+        if (editSlug) {
+          url = `/pj-ops-hq/patch-category/${editSlug}`;
+          method = 'PUT';
+        }
+
+        await apiRequest(url, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminState.token}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const action = editSlug ? 'category_updated' : 'category_created';
+        const description = editSlug ? `Updated category: ${payload.name}` : `Created new category: ${payload.name}`;
+        await logAdminAction(action, description);
+        
+        showToast('Category saved successfully.');
+        closeCategoryModal();
+        await loadCategoriesTable();
+      } catch (err) {}
+    }
+
+    async function deleteCategory(slug) {
+      if (!confirm('Are you sure you want to delete this category? Products in this category may become uncategorized.')) return;
+      
+      try {
+        await apiRequest(`/pj-ops-hq/purge-category/${slug}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${adminState.token}` }
+        });
+        await logAdminAction('category_deleted', `Deleted category: ${slug}`);
+        showToast('Category deleted successfully.');
+        await loadCategoriesTable();
+      } catch (err) {}
+    }
+
+    // ============================================
+    // LOOKBOOK MANAGEMENT
+    // ============================================
+
+    async function loadLookbooksTable() {
+      const tbody = document.getElementById('lookbooks-rows');
+      try {
+        const data = await apiRequest('/pj-ops-hq/get-lookbooks', {
+          headers: { 'Authorization': `Bearer ${adminState.token}` }
+        });
+
+        if (data.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-xs text-brand-muted">No lookbooks created yet.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = data.map(lb => `
+          <tr class="border-b border-neutral-100 hover:bg-neutral-50/50 premium-transition">
+            <td class="p-4"><img src="${lb.image_url || 'https://images.unsplash.com/photo-1523170335258-f5ed11844a49?auto=format&fit=crop&q=80&w=100'}" class="h-12 w-12 object-cover bg-neutral-100"></td>
+            <td class="p-4 font-semibold text-brand">${lb.title}</td>
+            <td class="p-4 text-xs font-mono text-brand-muted">${lb.slug}</td>
+            <td class="p-4 font-bold text-xs">${lb.display_order}</td>
+            <td class="p-4"><span class="px-2 py-1 text-[9px] font-bold uppercase tracking-premium ${lb.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${lb.is_active ? 'Active' : 'Inactive'}</span></td>
+            <td class="p-4 text-right space-x-2">
+              <button class="text-xs uppercase font-bold text-blue-500 hover:text-blue-700 premium-transition edit-lookbook-btn" data-slug="${lb.slug}">Edit</button>
+              <button class="text-xs uppercase font-bold text-red-500 hover:text-red-700 premium-transition delete-lookbook-btn" data-slug="${lb.slug}">Delete</button>
+            </td>
+          </tr>
+        `).join('');
+
+        document.querySelectorAll('.edit-lookbook-btn').forEach(btn => {
+          btn.addEventListener('click', () => editLookbook(btn.getAttribute('data-slug')));
+        });
+        document.querySelectorAll('.delete-lookbook-btn').forEach(btn => {
+          btn.addEventListener('click', () => deleteLookbook(btn.getAttribute('data-slug')));
+        });
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-xs text-red-500 uppercase tracking-premium">Error loading lookbooks.</td></tr>`;
+      }
+    }
+
+    function openLookbookModal() {
+      document.getElementById('modal-title').innerText = 'Add New Lookbook';
+      document.getElementById('lookbook-form').reset();
+      document.getElementById('edit-lookbook-slug').value = '';
+      document.getElementById('lookbook-modal').classList.remove('hidden');
+    }
+
+    function closeLookbookModal() {
+      document.getElementById('lookbook-modal').classList.add('hidden');
+    }
+
+    async function editLookbook(slug) {
+      openLookbookModal();
+      document.getElementById('modal-title').innerText = 'Edit Lookbook';
+
+      try {
+        const lb = await apiRequest(`/pj-secure-boutique/get-lookbook/${slug}`);
+        document.getElementById('edit-lookbook-slug').value = lb.slug;
+        document.getElementById('lb-title').value = lb.title;
+        document.getElementById('lb-subtitle').value = lb.subtitle || '';
+        document.getElementById('lb-description').value = lb.description || '';
+        document.getElementById('lb-image-url').value = lb.image_url || '';
+        document.getElementById('lb-display-order').value = lb.display_order || 0;
+        document.getElementById('lb-is-active').value = lb.is_active ? 'true' : 'false';
+      } catch (err) {}
+    }
+
+    async function handleSaveLookbook(event) {
+      event.preventDefault();
+      const editSlug = document.getElementById('edit-lookbook-slug').value;
+
+      const payload = {
+        title: document.getElementById('lb-title').value,
+        subtitle: document.getElementById('lb-subtitle').value,
+        description: document.getElementById('lb-description').value,
+        image_url: document.getElementById('lb-image-url').value,
+        display_order: parseInt(document.getElementById('lb-display-order').value) || 0,
+        is_active: document.getElementById('lb-is-active').value === 'true'
+      };
+
+      try {
+        let url = '/pj-ops-hq/push-lookbook';
+        let method = 'POST';
+
+        if (editSlug) {
+          url = `/pj-ops-hq/patch-lookbook/${editSlug}`;
+          method = 'PUT';
+        }
+
+        await apiRequest(url, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminState.token}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const action = editSlug ? 'lookbook_updated' : 'lookbook_created';
+        const description = editSlug ? `Updated lookbook: ${payload.title}` : `Created new lookbook: ${payload.title}`;
+        await logAdminAction(action, description);
+
+        showToast('Lookbook saved successfully.');
+        closeLookbookModal();
+        await loadLookbooksTable();
+      } catch (err) {}
+    }
+
+    async function deleteLookbook(slug) {
+      if (!confirm('Are you sure you want to delete this lookbook?')) return;
+
+      try {
+        await apiRequest(`/pj-ops-hq/purge-lookbook/${slug}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${adminState.token}` }
+        });
+        await logAdminAction('lookbook_deleted', `Deleted lookbook: ${slug}`);
+        showToast('Lookbook deleted successfully.');
+        await loadLookbooksTable();
+      } catch (err) {}
+    }
+
+    // ============================================
+    // USER LOGS
+    // ============================================
+
+    async function loadUserLogsTable() {
+      const tbody = document.getElementById('user-logs-rows');
+      try {
+        const data = await apiRequest('/pj-ops-hq/get-user-logs', {
+          headers: { 'Authorization': `Bearer ${adminState.token}` }
+        });
+        
+        if (data.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-xs text-brand-muted">No user logs recorded yet.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = data.map(log => `
+          <tr class="border-b border-neutral-100 hover:bg-neutral-50/50 premium-transition">
+            <td class="p-4 text-xs text-brand-muted">${new Date(log.created_at).toLocaleString()}</td>
+            <td class="p-4">
+              <span class="px-2 py-1 text-[9px] font-bold uppercase tracking-premium ${log.user_type === 'admin' ? 'bg-purple-100 text-purple-800' : log.user_type === 'customer' ? 'bg-blue-100 text-blue-800' : 'bg-neutral-100 text-neutral-800'}">${log.user_type || 'system'}</span>
+            </td>
+            <td class="p-4 text-xs font-medium text-brand">${log.user_email || '-'}</td>
+            <td class="p-4 text-xs font-bold uppercase tracking-premium text-brand">${log.action}</td>
+            <td class="p-4 text-xs text-brand-muted">${log.description || '-'}</td>
+          </tr>
+        `).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-xs text-red-500 uppercase tracking-premium">Error loading user logs.</td></tr>`;
+      }
+    }
+  </script>
+</body>
+</html>

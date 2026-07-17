@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment Verification | Payjay Trends</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          colors: {
+            brand: '#1a1a1a',
+            'brand-hover': '#333333',
+            'brand-muted': '#6b6b6b',
+            'brand-gold': '#c9a050'
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .premium-transition { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    .custom-hover-zoom { transition: transform 0.7s cubic-bezier(0.4, 0, 0.2, 1); }
+    .group:hover .custom-hover-zoom { transform: scale(1.05); }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in-up { animation: fadeInUp 0.6s ease-out; }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.8); opacity: 1; }
+      100% { transform: scale(2); opacity: 0; }
+    }
+    .pulse-ring { animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
+  </style>
+</head>
+<body class="font-sans bg-white text-brand antialiased">
+
+  <!-- Header -->
+  <header class="border-b border-neutral-100">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div class="flex items-center justify-between">
+        <a href="/" class="flex items-center space-x-3">
+          <img src="/Payjay logo.jpg" alt="Payjay Trends" class="h-10 w-10 object-cover">
+          <span class="text-xl font-extrabold uppercase tracking-tight">Payjay Trends</span>
+        </a>
+        <a href="/#" class="text-xs uppercase tracking-premium font-semibold text-brand-muted hover:text-brand premium-transition">
+          Return to Store
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+    
+    <!-- Verification Container -->
+    <div id="verify-container" class="animate-fade-in-up">
+      
+      <!-- Initial Form State -->
+      <div id="verify-form-state">
+        <div class="text-center mb-12">
+          <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-brand/5 mb-6">
+            <svg class="w-8 h-8 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          </div>
+          <h2 class="text-3xl font-extrabold uppercase tracking-tight text-brand mb-4">Payment Verification</h2>
+          <p class="text-sm text-brand-muted max-w-md mx-auto">
+            Enter your order token and Paystack payment reference to verify your transaction.
+          </p>
+        </div>
+
+        <form id="payment-verify-form" class="bg-white border border-neutral-100 p-8 shadow-sm">
+          <div class="space-y-6">
+            <div>
+              <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Order Token</label>
+              <input type="text" id="order-token" required placeholder="PJ-A1B2-C3D4" class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition uppercase" value="">
+              <p class="text-[10px] text-brand-muted mt-1.5">Found in your order confirmation or tracking page</p>
+            </div>
+
+            <div>
+              <label class="block text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-2">Paystack Reference</label>
+              <input type="text" id="paystack-reference" required placeholder="e.g. pj_paystack_123456789" class="w-full border border-neutral-200 px-4 py-3 text-sm focus:border-brand outline-none premium-transition" value="">
+              <p class="text-[10px] text-brand-muted mt-1.5">Provided by Paystack after payment</p>
+            </div>
+
+            <button type="submit" id="verify-btn" class="w-full bg-brand text-white text-xs uppercase tracking-premium font-bold py-4 hover:bg-brand-hover premium-transition shadow-lg">
+              Verify Payment
+            </button>
+          </div>
+        </form>
+
+        <!-- Demo Section -->
+        <div class="mt-8 p-6 bg-neutral-50 border border-neutral-100">
+          <p class="text-[10px] uppercase tracking-premium font-bold text-brand-muted mb-3">For Testing Purposes</p>
+          <button id="sandbox-verify-btn" class="w-full border border-brand text-brand hover:bg-brand hover:text-white py-3 text-xs uppercase font-bold tracking-premium premium-transition">
+            Verify Sandbox Payment
+          </button>
+        </div>
+      </div>
+
+      <!-- Loading State -->
+      <div id="verify-loading-state" class="hidden">
+        <div class="text-center py-20">
+          <div class="inline-block relative mb-6">
+            <div class="w-16 h-16 rounded-full border-4 border-brand/10"></div>
+            <div class="absolute inset-0 w-16 h-16 rounded-full border-4 border-brand border-t-transparent animate-spin"></div>
+          </div>
+          <p class="text-sm font-semibold text-brand uppercase tracking-premium">Verifying transaction with Paystack...</p>
+          <p class="text-xs text-brand-muted mt-2">This may take a few moments</p>
+        </div>
+      </div>
+
+      <!-- Success State -->
+      <div id="verify-success-state" class="hidden">
+        <div class="text-center mb-8">
+          <div class="inline-flex items-center justify-center w-20 h-20 rounded-full bg-green-50 mb-6 relative">
+            <svg class="w-10 h-10 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+            </svg>
+            <div class="absolute inset-0 rounded-full border-2 border-green-500 pulse-ring"></div>
+          </div>
+          <h2 class="text-3xl font-extrabold uppercase tracking-tight text-brand mb-3">Payment Verified!</h2>
+          <p class="text-sm text-brand-muted">Your transaction has been successfully authenticated.</p>
+        </div>
+
+        <div class="bg-white border border-neutral-100 p-8 shadow-sm">
+          <div class="space-y-4">
+            <div class="flex justify-between items-center pb-4 border-b border-neutral-100">
+              <span class="text-xs uppercase tracking-premium font-bold text-brand-muted">Status</span>
+              <span class="px-3 py-1.5 bg-green-50 text-green-700 text-[10px] font-bold uppercase tracking-premium">Verified</span>
+            </div>
+
+            <div class="flex justify-between items-center pb-4 border-b border-neutral-100">
+              <span class="text-xs uppercase tracking-premium font-bold text-brand-muted">Order Token</span>
+              <span id="success-token" class="text-sm font-bold text-brand"></span>
+            </div>
+
+            <div class="flex justify-between items-center pb-4 border-b border-neutral-100">
+              <span class="text-xs uppercase tracking-premium font-bold text-brand-muted">Paystack Reference</span>
+              <span id="success-reference" class="text-sm font-bold text-brand"></span>
+            </div>
+
+            <div class="flex justify-between items-center">
+              <span class="text-xs uppercase tracking-premium font-bold text-brand-muted">Verified At</span>
+              <span id="success-timestamp" class="text-sm font-bold text-brand"></span>
+            </div>
+          </div>
+
+          <div class="mt-8 pt-6 border-t border-neutral-100">
+            <a id="track-order-link" href="#/track" class="block w-full bg-brand text-white text-xs uppercase tracking-premium font-bold py-4 hover:bg-brand-hover premium-transition shadow-lg text-center">
+              Track Your Order
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Error State -->
+      <div id="verify-error-state" class="hidden">
+        <div class="text-center mb-8">
+          <div class="inline-flex items-center justify-center w-20 h-20 rounded-full bg-red-50 mb-6">
+            <svg class="w-10 h-10 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </div>
+          <h2 class="text-3xl font-extrabold uppercase tracking-tight text-brand mb-3">Verification Failed</h2>
+          <p id="error-message" class="text-sm text-red-600 font-medium"></p>
+        </div>
+
+        <div class="bg-white border border-neutral-100 p-8 shadow-sm">
+          <button id="retry-btn" class="w-full bg-brand text-white text-xs uppercase tracking-premium font-bold py-4 hover:bg-brand-hover premium-transition shadow-lg">
+            Try Again
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-neutral-100 mt-20">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center">
+      <p class="text-xs text-brand-muted uppercase tracking-premium font-semibold">
+        © 2024 Payjay Trends. All rights reserved.
+      </p>
+    </div>
+  </footer>
+
+  <script>
+    // ==========================================
+    // PAYMENT VERIFICATION LOGIC
+    // ==========================================
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const form = document.getElementById('payment-verify-form');
+      const sandboxBtn = document.getElementById('sandbox-verify-btn');
+      const retryBtn = document.getElementById('retry-btn');
+      const verifyBtn = document.getElementById('verify-btn');
+
+      // Auto-fill from URL params if present
+      const urlParams = new URLSearchParams(window.location.search);
+      const tokenParam = urlParams.get('token');
+      const refParam = urlParams.get('ref');
+      
+      if (tokenParam) document.getElementById('order-token').value = tokenParam;
+      if (refParam) document.getElementById('paystack-reference').value = refParam;
+
+      // Form submission
+      if (form) {
+        form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          const token = document.getElementById('order-token').value.trim();
+          const reference = document.getElementById('paystack-reference').value.trim();
+          
+          if (token && reference) {
+            verifyPayment(token, reference);
+          }
+        });
+      }
+
+      // Sandbox verification
+      if (sandboxBtn) {
+        sandboxBtn.addEventListener('click', () => {
+          const token = document.getElementById('order-token').value.trim();
+          if (!token) {
+            showError('Please enter an order token first.');
+            return;
+          }
+          verifyPayment(token, 'pj_sandbox_payment_ref_override');
+        });
+      }
+
+      // Retry button
+      if (retryBtn) {
+        retryBtn.addEventListener('click', () => {
+          showFormState();
+        });
+      }
+    });
+
+    async function verifyPayment(orderToken, paystackReference) {
+      showLoadingState();
+
+      try {
+        const response = await fetch('/pj-secure-boutique/audit-transaction', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            order_token: orderToken,
+            paystack_reference: paystackReference
+          })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+          showSuccessState(orderToken, paystackReference);
+        } else {
+          showError(data.error || 'Verification failed. Please try again.');
+        }
+      } catch (err) {
+        showError(err.message || 'Network error. Please check your connection.');
+      }
+    }
+
+    function showFormState() {
+      document.getElementById('verify-form-state').classList.remove('hidden');
+      document.getElementById('verify-loading-state').classList.add('hidden');
+      document.getElementById('verify-success-state').classList.add('hidden');
+      document.getElementById('verify-error-state').classList.add('hidden');
+    }
+
+    function showLoadingState() {
+      document.getElementById('verify-form-state').classList.add('hidden');
+      document.getElementById('verify-loading-state').classList.remove('hidden');
+      document.getElementById('verify-success-state').classList.add('hidden');
+      document.getElementById('verify-error-state').classList.add('hidden');
+    }
+
+    function showSuccessState(token, reference) {
+      document.getElementById('verify-form-state').classList.add('hidden');
+      document.getElementById('verify-loading-state').classList.add('hidden');
+      document.getElementById('verify-success-state').classList.remove('hidden');
+      document.getElementById('verify-error-state').classList.add('hidden');
+
+      document.getElementById('success-token').textContent = token.toUpperCase();
+      document.getElementById('success-reference').textContent = reference;
+      document.getElementById('success-timestamp').textContent = new Date().toLocaleString();
+      
+      const trackLink = document.getElementById('track-order-link');
+      trackLink.href = `/#/track/${token}`;
+    }
+
+    function showError(message) {
+      document.getElementById('verify-form-state').classList.add('hidden');
+      document.getElementById('verify-loading-state').classList.add('hidden');
+      document.getElementById('verify-success-state').classList.add('hidden');
+      document.getElementById('verify-error-state').classList.remove('hidden');
+
+      document.getElementById('error-message').textContent = message;
+    }
+  </script>
+</body>
+</html>
